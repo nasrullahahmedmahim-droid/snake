@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>🐍 Snake Game</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+  background:linear-gradient(135deg,#0a0a1a,#1a0a2e,#0a1a2e);
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
+  min-height:100vh;font-family:'Segoe UI',Tahoma,sans-serif;overflow-y:auto;color:#fff;
+  padding:10px 0 30px 0;
+  touch-action:none;
+}
+h1{
+  font-size:1.5rem;margin-bottom:6px;
+  background:linear-gradient(90deg,#6bcb77,#4d96ff,#ff6b6b);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  letter-spacing:2px;
+}
+.scores{display:flex;gap:20px;margin-bottom:8px;font-size:1.1rem}
+.scores span{
+  background:rgba(255,255,255,0.07);padding:5px 16px;border-radius:18px;
+  border:1px solid rgba(255,255,255,0.1);
+}
+.scores .hi{color:#ffd93d}.scores .cur{color:#6bcb77}
+canvas{
+  border-radius:10px;border:2px solid rgba(255,255,255,0.1);
+  box-shadow:0 0 30px rgba(75,150,255,0.12);
+}
+.dpad{
+  display:grid;grid-template-areas:".. up ..""left down right";
+  grid-template-columns:64px 64px 64px;grid-template-rows:64px 64px;
+  gap:6px;margin-top:12px;
+}
+.dpad button{
+  width:64px;height:64px;border:none;border-radius:16px;cursor:pointer;
+  font-size:1.6rem;background:rgba(255,255,255,0.08);color:#fff;
+  border:1px solid rgba(255,255,255,0.12);
+  display:flex;align-items:center;justify-content:center;
+  transition:transform .1s,background .1s;
+  -webkit-tap-highlight-color:transparent;
+}
+.dpad button:active{transform:scale(0.88);background:rgba(255,255,255,0.22)}
+.bup{grid-area:up}.bdown{grid-area:down}.bleft{grid-area:left}.bright{grid-area:right}
+.restart{
+  position:fixed;bottom:16px;right:16px;z-index:20;
+  padding:12px 24px;border:none;border-radius:18px;
+  background:linear-gradient(135deg,#ff6b6b,#ee5a24);color:#fff;
+  font-size:1rem;cursor:pointer;font-weight:600;
+  box-shadow:0 4px 15px rgba(238,90,36,0.4);
+}
+.overlay{
+  position:absolute;top:0;left:0;width:100%;height:100%;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:rgba(0,0,0,0.72);border-radius:10px;z-index:10;
+  pointer-events:none;opacity:0;transition:opacity .3s;
+}
+.overlay.show{opacity:1;pointer-events:auto}
+.overlay h2{font-size:2rem;color:#ff6b6b;margin-bottom:6px}
+.overlay p{font-size:1.2rem;color:#ffd93d}
+.wrap{position:relative;display:inline-block}
+.flash{
+  position:absolute;top:0;left:0;width:100%;height:100%;
+  background:rgba(255,255,255,0.5);border-radius:10px;
+  pointer-events:none;opacity:0;transition:opacity .12s;
+}
+.flash.pop{opacity:1}
+@media(max-width:860px){
+  h1{font-size:1.2rem}
+  .scores{gap:12px;font-size:.9rem}
+  .dpad button{width:56px;height:56px;font-size:1.3rem}
+  .dpad{grid-template-columns:56px 56px 56px;grid-template-rows:56px 56px}
+}
+</style>
+</head>
+<body>
+<h1>🐍 Snake Photo Game</h1>
+<div class="scores">
+  <span class="cur">Score: <b id="score">0</b></span>
+  <span class="hi">Best: <b id="hiscore">0</b></span>
+</div>
+<div class="wrap">
+  <canvas id="gc" width="800" height="800"></canvas>
+  <div class="overlay" id="ov">
+    <h2>💀 Game Over!</h2>
+    <p id="fs">Score: 0</p>
+  </div>
+  <div class="flash" id="fl"></div>
+</div>
+<div class="dpad">
+  <button class="bup" ontouchstart="sDir(0,-1);event.preventDefault()" onmousedown="sDir(0,-1)">▲</button>
+  <button class="bleft" ontouchstart="sDir(-1,0);event.preventDefault()" onmousedown="sDir(-1,0)">◀</button>
+  <button class="bdown" ontouchstart="sDir(0,1);event.preventDefault()" onmousedown="sDir(0,1)">▼</button>
+  <button class="bright" ontouchstart="sDir(1,0);event.preventDefault()" onmousedown="sDir(1,0)">▶</button>
+</div>
+<button class="restart" onclick="init()">🔄 Restart</button>
+
+<script>
+const C=20,R=20,SZ=40;
+const cv=document.getElementById('gc');
+const cx=cv.getContext('2d');
+const scEl=document.getElementById('score');
+const hiEl=document.getElementById('hiscore');
+const ov=document.getElementById('ov');
+const fsEl=document.getElementById('fs');
+const flEl=document.getElementById('fl');
+
+let headImg=new Image(),foodImg=new Image();
+headImg.src='dishan.jpeg';
+foodImg.src='WhatsApp Image 2026-04-28 at 00.09.02.jpeg';
+
+let sndEat=null,sndDie=null,audioOk=false;
+function unlockAudio(){
+  if(audioOk)return;
+  sndEat=new Audio('mahh.mp3');
+  sndDie=new Audio('muhha.mp3');
+  try{sndEat.load();sndDie.load();}catch(e){}
+  audioOk=true;
+}
+function playSnd(s){if(!s)return;try{s.currentTime=0;s.play();}catch(e){}}
+
+let snake,dir,ndir,food,score,hi,eaten,spd,over,iv;
+hi=parseInt(localStorage.getItem('snakeHi'))||0;
+hiEl.textContent=hi;
+
+function init(){
+  unlockAudio();
+  ov.classList.remove('show');
+  snake=[{x:10,y:10},{x:9,y:10},{x:8,y:10}];
+  dir={x:1,y:0};ndir={x:1,y:0};
+  score=0;eaten=0;spd=130;over=false;
+  scEl.textContent=0;
+  placeFood();
+  if(iv)clearInterval(iv);
+  iv=setInterval(tick,spd);
+}
+
+function placeFood(){
+  let p;
+  do{p={x:Math.floor(Math.random()*C),y:Math.floor(Math.random()*R)};}
+  while(snake.some(s=>s.x===p.x&&s.y===p.y));
+  food=p;
+}
+
+function sDir(x,y){
+  unlockAudio();
+  if(dir.x===-x&&dir.y===-y)return;
+  ndir={x,y};
+}
+
+function tick(){
+  if(over)return;
+  dir={...ndir};
+  const h={x:snake[0].x+dir.x,y:snake[0].y+dir.y};
+  if(h.x<0||h.x>=C||h.y<0||h.y>=R||snake.some(s=>s.x===h.x&&s.y===h.y)){
+    over=true;clearInterval(iv);
+    playSnd(sndDie);
+    if(score>hi){hi=score;localStorage.setItem('snakeHi',hi);hiEl.textContent=hi;}
+    fsEl.textContent='Score: '+score;
+    ov.classList.add('show');
+    draw();return;
+  }
+  snake.unshift(h);
+  if(h.x===food.x&&h.y===food.y){
+    score+=10;eaten++;scEl.textContent=score;
+    playSnd(sndEat);
+    flEl.classList.add('pop');setTimeout(()=>flEl.classList.remove('pop'),120);
+    placeFood();
+    if(eaten%5===0&&spd>60){spd-=10;clearInterval(iv);iv=setInterval(tick,spd);}
+  }else{snake.pop();}
+  draw();
+}
+
+function rrect(c,x,y,w,h,r){
+  c.beginPath();c.moveTo(x+r,y);c.lineTo(x+w-r,y);c.quadraticCurveTo(x+w,y,x+w,y+r);
+  c.lineTo(x+w,y+h-r);c.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  c.lineTo(x+r,y+h);c.quadraticCurveTo(x,y+h,x,y+h-r);
+  c.lineTo(x,y+r);c.quadraticCurveTo(x,y,x+r,y);c.closePath();
+}
+
+function draw(){
+  cx.clearRect(0,0,cv.width,cv.height);
+
+  // grid
+  cx.strokeStyle='rgba(255,255,255,0.03)';cx.lineWidth=0.5;
+  for(let i=0;i<=C;i++){cx.beginPath();cx.moveTo(i*SZ,0);cx.lineTo(i*SZ,R*SZ);cx.stroke();}
+  for(let i=0;i<=R;i++){cx.beginPath();cx.moveTo(0,i*SZ);cx.lineTo(C*SZ,i*SZ);cx.stroke();}
+
+  // body
+  for(let i=snake.length-1;i>=1;i--){
+    const s=snake[i];
+    const t=1-(i/snake.length);
+    const r=Math.floor(30+t*50),g=Math.floor(180+t*60),b=Math.floor(80+t*40);
+    const gr=cx.createRadialGradient(s.x*SZ+SZ/2,s.y*SZ+SZ/2,2,s.x*SZ+SZ/2,s.y*SZ+SZ/2,SZ/2-1);
+    gr.addColorStop(0,`rgba(${r+40},${g+40},${b+40},1)`);
+    gr.addColorStop(1,`rgba(${r},${g},${b},0.85)`);
+    cx.beginPath();cx.arc(s.x*SZ+SZ/2,s.y*SZ+SZ/2,SZ/2-2,0,Math.PI*2);
+    cx.fillStyle=gr;cx.fill();
+    cx.strokeStyle=`rgba(${r+60},${g+60},${b+60},0.4)`;cx.lineWidth=1;cx.stroke();
+  }
+
+  // head photo (dishan.jpeg) - square with rounded corners
+  const hp=snake[0];
+  const hx=hp.x*SZ,hy=hp.y*SZ,pad=2,rad=8;
+  cx.save();
+  // white frame
+  rrect(cx,hx-pad,hy-pad,SZ+pad*2,SZ+pad*2,rad+2);
+  cx.fillStyle='rgba(255,255,255,0.18)';cx.fill();
+  // clip & draw photo
+  cx.beginPath();rrect(cx,hx,hy,SZ,SZ,rad);cx.clip();
+  try{cx.drawImage(headImg,hx,hy,SZ,SZ);}catch(e){}
+  cx.restore();
+  // gold border
+  cx.beginPath();rrect(cx,hx-1,hy-1,SZ+2,SZ+2,rad+1);
+  cx.strokeStyle='rgba(255,215,0,0.6)';cx.lineWidth=2.5;cx.stroke();
+  // crown
+  cx.font='14px serif';cx.fillText('👑',hx+SZ-16,hy-2);
+
+  // food photo (WhatsApp image) - square with rounded corners + glow
+  const fx=food.x*SZ,fy=food.y*SZ;
+  cx.save();
+  cx.shadowColor='rgba(255,80,80,0.5)';cx.shadowBlur=12;
+  rrect(cx,fx-pad,fy-pad,SZ+pad*2,SZ+pad*2,rad+2);
+  cx.fillStyle='rgba(255,60,60,0.12)';cx.fill();
+  cx.restore();
+  // frame
+  rrect(cx,fx-pad,fy-pad,SZ+pad*2,SZ+pad*2,rad+2);
+  cx.fillStyle='rgba(255,255,255,0.1)';cx.fill();
+  // clip & draw
+  cx.save();
+  cx.beginPath();rrect(cx,fx,fy,SZ,SZ,rad);cx.clip();
+  try{cx.drawImage(foodImg,fx,fy,SZ,SZ);}catch(e){}
+  cx.restore();
+  // red border
+  cx.beginPath();rrect(cx,fx-1,fy-1,SZ+2,SZ+2,rad+1);
+  cx.strokeStyle='rgba(255,100,100,0.5)';cx.lineWidth=2.5;cx.stroke();
+  // camera emoji
+  cx.font='14px serif';cx.fillText('📸',fx+SZ-16,fy-2);
+}
+
+// keyboard
+document.addEventListener('keydown',e=>{
+  unlockAudio();
+  switch(e.key){
+    case'ArrowUp':case'w':case'W':sDir(0,-1);e.preventDefault();break;
+    case'ArrowDown':case's':case'S':sDir(0,1);e.preventDefault();break;
+    case'ArrowLeft':case'a':case'A':sDir(-1,0);e.preventDefault();break;
+    case'ArrowRight':case'd':case'D':sDir(1,0);e.preventDefault();break;
+  }
+});
+
+// touch swipe on canvas
+let ts=null;
+cv.addEventListener('touchstart',e=>{ts={x:e.touches[0].clientX,y:e.touches[0].clientY};e.preventDefault();},{passive:false});
+cv.addEventListener('touchend',e=>{
+  if(!ts)return;
+  const dx=e.changedTouches[0].clientX-ts.x,dy=e.changedTouches[0].clientY-ts.y;
+  if(Math.abs(dx)>Math.abs(dy)){sDir(dx>0?1:-1,0);}else{sDir(0,dy>0?1:-1);}
+  ts=null;
+},{passive:false});
+
+// responsive
+function resizeCv(){
+  const mw=Math.min(window.innerWidth-20,800);
+  cv.style.width=mw+'px';cv.style.height=mw+'px';
+}
+window.addEventListener('resize',resizeCv);resizeCv();
+
+init();
+</script>
+</body>
+</html>
